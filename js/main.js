@@ -2,7 +2,7 @@ import { settings } from './settings.js';
 import { SOURCES, urlItems, manualItem } from './sources.js';
 import { detectLang, lineScript, alreadyTarget } from './lyrics.js';
 import { translateLines, googleRoman, SOURCE_CODE } from './translate.js';
-import { thaiTone, koreanRoman, quickJapanese, japanese, localJapanese, startKuroshiro, pinyinChars } from './romanize.js';
+import { thaiTone, koreanRoman, quickJapanese, japanese, pinyinChars } from './romanize.js';
 import { isAbort, pool, tick } from './net.js';
 import * as library from './library.js';
 
@@ -406,19 +406,6 @@ function setRuby(i, pairs) {
   }
 }
 
-async function upgradeJapaneseLocally(song, gen) {
-  const ok = await startKuroshiro();
-  if (!ok) return;
-  for (let i = 0; i < song.lines.length; i++) {
-    if (S.song !== song || S.romGen !== gen || !settings.get('showRom')) return;
-    const text = song.lines[i].text;
-    if (!text || lineScript(text, S.lang) !== 'ja') continue;
-    const v = await localJapanese(text);
-    if (v && S.song === song && S.romGen === gen) setRom(i, v);
-    if (i % 20 === 19) await tick();
-  }
-}
-
 async function runRoman() {
   cancelRoman();
   const song = S.song;
@@ -465,7 +452,6 @@ async function runRoman() {
       }
       if (++n % 25 === 0) await tick();
     }
-    if (slow.some(j => j.kind === 'ja')) upgradeJapaneseLocally(song, gen);
     if (han.length) {
       try {
         let k = 0;
