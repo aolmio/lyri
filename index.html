@@ -4,7 +4,14 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="color-scheme" content="light dark">
+<meta name="theme-color" content="#4f46e5">
 <meta name="description" content="Search lyrics across multiple sources with romanization and translation.">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" type="image/svg+xml" href="icon.svg">
+<link rel="apple-touch-icon" href="icon.svg">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+Myanmar:wght@400;500;600&family=Noto+Sans+Thai:wght@400;500;600&display=swap">
 <title>Lyrics Studio</title>
 <link rel="stylesheet" href="css/style.css">
 </head>
@@ -14,8 +21,9 @@
   <form id="searchForm" class="search" autocomplete="off">
     <input id="q" type="search" placeholder="Song, artist, or lyrics page URL" aria-label="Search lyrics" enterkeyhint="search">
     <button id="searchBtn" type="submit" class="primary">Search</button>
-    <button id="stopBtn" type="button" class="danger" hidden>Stop</button>
+    <button id="stopBtn" type="button" class="danger" disabled>Stop</button>
   </form>
+  <button id="installBtn" type="button" hidden>Install</button>
   <button id="optionsBtn" type="button" class="icon" aria-label="Options" title="Options">⚙</button>
 </header>
 <div id="chips" class="chips" aria-live="polite"></div>
@@ -23,20 +31,36 @@
 <main class="layout">
   <aside class="side">
     <nav class="tabs" role="tablist">
-      <button type="button" role="tab" data-tab="results" class="on">Results</button>
-      <button type="button" role="tab" data-tab="saved">Saved <span id="savedCount" class="count"></span></button>
+      <button type="button" role="tab" data-tab="search" class="on" aria-selected="true">Search</button>
+      <button type="button" role="tab" data-tab="saved" aria-selected="false">Saved <span id="savedCount" class="count"></span></button>
     </nav>
-    <ul id="resultList" class="list"></ul>
-    <ul id="savedList" class="list" hidden></ul>
-    <details class="paste">
-      <summary>Paste lyrics manually</summary>
-      <form id="pasteForm">
-        <input id="pasteTitle" placeholder="Title">
-        <input id="pasteArtist" placeholder="Artist">
-        <textarea id="pasteText" rows="6" placeholder="Paste lyrics here" required></textarea>
-        <button type="submit" class="primary">Show lyrics</button>
-      </form>
-    </details>
+
+    <section id="searchPanel" class="panel">
+      <div class="pills" aria-label="Sources">
+        <label class="pill"><input type="checkbox" data-key="srcLrclib">LRCLIB</label>
+        <label class="pill"><input type="checkbox" data-key="srcOvh">Lyrics.ovh</label>
+        <label class="pill"><input type="checkbox" data-key="srcNetease">NetEase</label>
+        <label class="pill"><input type="checkbox" data-key="srcSiamzone">SiamZone</label>
+      </div>
+      <ul id="resultList" class="list"></ul>
+      <details class="paste">
+        <summary>Paste lyrics manually</summary>
+        <form id="pasteForm">
+          <input id="pasteTitle" placeholder="Title">
+          <input id="pasteArtist" placeholder="Artist">
+          <textarea id="pasteText" rows="6" placeholder="Paste lyrics here" required></textarea>
+          <button type="submit" class="primary">Show lyrics</button>
+        </form>
+      </details>
+    </section>
+
+    <section id="savedPanel" class="panel" hidden>
+      <div class="saved-tools">
+        <input id="savedFilter" type="search" placeholder="Filter saved songs" aria-label="Filter saved songs">
+        <button id="clearSaved" type="button" class="danger" hidden>Clear all</button>
+      </div>
+      <ul id="savedList" class="list"></ul>
+    </section>
   </aside>
 
   <section class="reader" id="reader">
@@ -46,7 +70,7 @@
     </div>
     <article id="song" hidden>
       <div class="songbar">
-        <button id="backBtn" type="button" class="icon back" aria-label="Back to results">←</button>
+        <button id="backBtn" type="button" class="icon back" aria-label="Back to list">←</button>
         <div class="meta">
           <h2 id="songTitle"></h2>
           <p id="songArtist" class="muted"></p>
@@ -59,9 +83,9 @@
         </div>
       </div>
       <div class="toggles">
-        <label><input type="checkbox" data-key="showOrig"> Original</label>
-        <label><input type="checkbox" data-key="showRom"> Romanization</label>
-        <label><input type="checkbox" data-key="showTr"> Translation</label>
+        <label class="pill"><input type="checkbox" data-key="showOrig">Original</label>
+        <label class="pill"><input type="checkbox" data-key="showRom">Romanization</label>
+        <label class="pill"><input type="checkbox" data-key="showTr">Translation</label>
         <select data-key="target" aria-label="Translate to">
           <option value="en">English</option>
           <option value="zh-CN">中文 (Chinese)</option>
@@ -74,6 +98,7 @@
   </section>
 </main>
 <button id="exitReading" type="button" class="exit-reading" hidden>Exit reading mode</button>
+<div id="toast" class="toast" role="status" aria-live="polite"></div>
 
 <dialog id="optionsDlg">
   <form method="dialog" class="opts">
@@ -147,6 +172,7 @@
           <option value="ja">Japanese</option>
           <option value="ko">Korean</option>
           <option value="th">Thai</option>
+          <option value="my">Burmese</option>
         </select>
       </label>
       <label>Thai romanization
@@ -169,17 +195,17 @@
     </fieldset>
 
     <fieldset>
-      <legend>SiamZone search (Google Custom Search)</legend>
-      <label>API key
+      <legend>SiamZone search</legend>
+      <label>Google Custom Search API key (optional)
         <input type="password" data-key="cseKey" autocomplete="off" spellcheck="false" placeholder="Programmable Search API key">
       </label>
       <label>Search engine ID (cx)
         <input type="text" data-key="cseCx" autocomplete="off" spellcheck="false" placeholder="Search engine ID">
       </label>
-      <label>CORS proxy URL (optional)
+      <label>Your own CORS proxy (optional)
         <input type="text" data-key="proxy" autocomplete="off" spellcheck="false" placeholder="https://your-worker.workers.dev/?url={url}">
       </label>
-      <p class="muted small">Without a key, SiamZone is searched through DuckDuckGo and Bing instead. Keys stay in this browser only.</p>
+      <p class="muted small">SiamZone is searched through several routes at once (Bing, Yahoo, DuckDuckGo and the site itself). A Google key only adds one more route. Keys stay in this browser.</p>
     </fieldset>
 
     <footer>
