@@ -45,10 +45,10 @@ function joinSegments(data) {
   return tr;
 }
 
-export async function googleRoman(text, signal) {
-  const key = 'rm|' + text;
+export async function googleRoman(text, signal, sl = 'auto') {
+  const key = 'rm|' + sl + '|' + text;
   if (cache.has(key)) return cache.get(key);
-  const data = await gtx(text, 'auto', 'en', signal, true);
+  const data = await gtx(text, sl, 'en', signal, true);
   let rom = '';
   if (data) for (const seg of data[0] || []) if (seg && !seg[0] && seg[3]) rom += seg[3];
   cache.set(key, rom);
