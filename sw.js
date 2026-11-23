@@ -1,4 +1,4 @@
-const VERSION = 'lyrics-studio-v3';
+const VERSION = 'lyrics-studio-v4';
 const SHELL = ['./', 'index.html', 'css/style.css', 'manifest.json', 'icon.svg'];
 
 self.addEventListener('install', event => {
@@ -18,7 +18,7 @@ self.addEventListener('fetch', event => {
   const url = new URL(req.url);
   if (req.method !== 'GET' || url.origin !== self.location.origin) return;
   event.respondWith(
-    fetch(req)
+    fetch(req, { cache: 'no-cache' })
       .then(res => {
         const copy = res.clone();
         caches.open(VERSION).then(cache => cache.put(req, copy));
