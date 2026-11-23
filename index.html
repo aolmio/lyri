@@ -44,8 +44,10 @@
         <label class="pill"><input type="checkbox" data-key="srcSiamzone">SiamZone</label>
       </div>
       <ul id="resultList" class="list"></ul>
+      <button id="importLrcBtn" type="button" class="import-btn">Import .lrc or .txt file</button>
+      <input id="lrcFile" type="file" accept=".lrc,.txt,text/plain" hidden>
       <details class="paste">
-        <summary>Paste lyrics manually</summary>
+        <summary>Paste lyrics manually (plain or .lrc text)</summary>
         <form id="pasteForm">
           <input id="pasteTitle" placeholder="Title">
           <input id="pasteArtist" placeholder="Artist">
@@ -276,6 +278,12 @@
         <input type="text" data-key="proxy" autocomplete="off" spellcheck="false" placeholder="https://your-worker.workers.dev/?url={url}">
       </label>
       <p class="muted small">SiamZone is searched through several routes at once (Bing, Yahoo, DuckDuckGo and the site itself). A Google key only adds one more route. Keys stay in this browser.</p>
+    </fieldset>
+
+    <fieldset>
+      <legend>App</legend>
+      <button type="button" id="updateBtn">Update app to latest version</button>
+      <p class="muted small">Clears the saved app files and reloads. Your saved songs and options are kept.</p>
     </fieldset>
 
     <footer>
