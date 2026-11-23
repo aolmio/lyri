@@ -1,6 +1,6 @@
 import { settings } from './settings.js';
 import { SOURCES, urlItems, manualItem } from './sources.js';
-import { detectLang, lineScript, alreadyTarget } from './lyrics.js';
+import { detectLang, lineScript, alreadyTarget, parseLrc, parsePlain } from './lyrics.js';
 import { translateLines, googleRoman, SOURCE_CODE } from './translate.js';
 import { thaiTone, koreanRoman, quickJapanese, japanese, pinyinChars } from './romanize.js';
 import { isAbort, pool, tick } from './net.js';
@@ -679,10 +679,75 @@ function copyLyrics() {
   else toast('Clipboard is not available');
 }
 
+const LRC_STAMP = /\[\d{1,3}:\d{2}(?:[.:]\d{1,3})?\]/;
+
+function lrcItem(source, title, artist, text) {
+  const raw = String(text || '').replace(/^\uFEFF/, '');
+  const tag = name => {
+    const m = raw.match(new RegExp('^\\[' + name + ':([^\\]]*)\\]', 'mi'));
+    return m ? m[1].trim() : '';
+  };
+  return {
+    source,
+    title: title || tag('ti') || 'Untitled',
+    artist: artist || tag('ar'),
+    url: '',
+    load: async () => {
+      let lines = LRC_STAMP.test(raw) ? parseLrc(raw) : [];
+      if (!lines.some(l => l.text)) lines = parsePlain(raw.replace(/^\[[a-z]{2,8}:[^\]]*\]\s*$/gim, ''));
+      return { lines };
+    }
+  };
+}
+
+async function importLyricsFile(file) {
+  if (!file) return;
+  try {
+    const text = await file.text();
+    let base = file.name.replace(/\.[^.]+$/, '').replace(/[_]+/g, ' ').trim();
+    let artist = '';
+    const m = base.match(/^(.+?)\s+-\s+(.+)$/);
+    if (m) {
+      artist = m[1].trim();
+      base = m[2].trim();
+    }
+    const item = lrcItem('File', '', '', text);
+    if (item.title === 'Untitled') item.title = base || 'Untitled';
+    if (!item.artist) item.artist = artist;
+    showTab('search');
+    openItem(item);
+  } catch (e) {
+    toast('Could not read that file');
+  }
+}
+
+async function updateApp() {
+  const btn = $('updateBtn');
+  btn.disabled = true;
+  btn.textContent = 'Updating…';
+  try {
+    if ('serviceWorker' in navigator) {
+      const regs = await navigator.serviceWorker.getRegistrations();
+      await Promise.all(regs.map(r => r.update().catch(() => {})));
+      await Promise.all(regs.map(r => r.unregister()));
+    }
+    if (window.caches) {
+      const keys = await caches.keys();
+      await Promise.all(keys.map(k => caches.delete(k)));
+    }
+  } catch (e) {
+    toast('Update check failed, reloading anyway');
+  }
+  const url = new URL(location.href);
+  url.searchParams.set('v', String(Date.now()));
+  location.replace(url.toString());
+}
+
 function setReading(on) {
   document.body.classList.toggle('reading', on);
   $('exitReading').hidden = !on;
   if (on) window.scrollTo({ top: 0 });
+  window.dispatchEvent(new Event('resize'));
 }
 
 function onSettingChange(key) {
@@ -789,8 +854,19 @@ function init() {
   });
   $('pasteForm').addEventListener('submit', ev => {
     ev.preventDefault();
-    openItem(manualItem($('pasteTitle').value.trim(), $('pasteArtist').value.trim(), $('pasteText').value));
+    const text = $('pasteText').value;
+    const title = $('pasteTitle').value.trim();
+    const artist = $('pasteArtist').value.trim();
+    if (LRC_STAMP.test(text)) openItem(lrcItem('Manual', title, artist, text));
+    else openItem(manualItem(title, artist, text));
   });
+  $('importLrcBtn').addEventListener('click', () => $('lrcFile').click());
+  $('lrcFile').addEventListener('change', () => {
+    const file = $('lrcFile').files && $('lrcFile').files[0];
+    $('lrcFile').value = '';
+    importLyricsFile(file);
+  });
+  $('updateBtn').addEventListener('click', updateApp);
 }
 
 init();
