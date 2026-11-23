@@ -1,6 +1,6 @@
 import { Clock } from './clock.js';
 import {
-  fmtClock, buildTimeline, activeIndex, endTime, nextTarget, firstTarget,
+  fmtClock, buildTimeline, activeIndex, nextTarget, firstTarget,
   stampLine, restoreStamp, adjustLine, shiftAll, clearAll, toLrc, safeName
 } from './lrc.js';
 import { parseLrc } from './lyrics.js';
@@ -30,6 +30,7 @@ export function initSync(ctx) {
 
   let song = null;
   let timeline = [];
+  let estimated = false;
   let rowEls = new Map();
   let active = -1;
   let raf = 0;
@@ -52,7 +53,40 @@ export function initSync(ctx) {
   }
 
   function scrollToRow(el) {
-    el.scrollIntoView({ block: 'center', behavior: reduced() ? 'auto' : 'smooth' });
+    const rect = el.getBoundingClientRect();
+    const bar = root.hidden ? 0 : root.offsetHeight;
+    const view = window.innerHeight - bar;
+    const target = window.scrollY + rect.top - (view - rect.height) / 2;
+    window.scrollTo({ top: Math.max(0, target), behavior: reduced() ? 'auto' : 'smooth' });
+  }
+
+  function estimateTimeline(lines) {
+    const out = [];
+    let t = 0;
+    lines.forEach((l, i) => {
+      if (!l.text) {
+        t += 1.2;
+        return;
+      }
+      out.push({ t, i });
+      const len = Array.from(l.text).length;
+      t += Math.min(7, Math.max(2.2, 1.4 + len * 0.09));
+    });
+    return out;
+  }
+
+  function computeTimeline() {
+    const real = buildTimeline(song.lines);
+    if (real.length) {
+      estimated = false;
+      return real;
+    }
+    estimated = !editing;
+    return estimated ? estimateTimeline(song.lines) : [];
+  }
+
+  function timelineEnd() {
+    return timeline.length ? timeline[timeline.length - 1].t : 0;
   }
 
   function setActive(idx, force) {
@@ -66,7 +100,7 @@ export function initSync(ctx) {
   }
 
   function updateSeekMax(pos) {
-    let max = Math.max(60, endTime(song.lines) + 20);
+    let max = Math.max(60, timelineEnd() + 20);
     if (editing) max = Math.max(max, pos + 30);
     if (Number(seek.max) !== max) seek.max = String(max);
   }
@@ -91,7 +125,7 @@ export function initSync(ctx) {
     if (!dragging) seek.value = String(pos);
     const idx = timeline.length ? activeIndex(timeline, pos) : -1;
     if (idx !== active || force) setActive(idx, force && idx >= 0);
-    if (clock.playing && !editing && timeline.length && pos > endTime(song.lines) + AUTO_PAUSE_AFTER_END) {
+    if (clock.playing && !editing && timeline.length && pos > timelineEnd() + AUTO_PAUSE_AFTER_END) {
       pause();
     }
   }
@@ -200,15 +234,15 @@ export function initSync(ctx) {
   }
 
   function refresh() {
-    timeline = buildTimeline(song.lines);
-    const has = timeline.length > 0;
+    timeline = computeTimeline();
+    const has = timeline.length > 0 && !estimated;
     if (editing && ptr >= 0 && (!song.lines[ptr] || !song.lines[ptr].text)) ptr = firstTarget(song.lines);
     root.hidden = false;
     document.body.classList.add('has-transport');
     root.classList.toggle('unsynced', !has && !editing);
     root.classList.toggle('editing', editing);
     panel.hidden = !editing;
-    box.classList.toggle('synced', has || editing);
+    box.classList.toggle('synced', timeline.length > 0 || editing);
     box.classList.toggle('editing', editing);
     paintAllTs();
     markTargets();
@@ -248,6 +282,7 @@ export function initSync(ctx) {
     history = [];
     song = null;
     timeline = [];
+    estimated = false;
     rowEls = new Map();
     active = -1;
     root.hidden = true;
@@ -271,10 +306,10 @@ export function initSync(ctx) {
   }
 
   function changed() {
-    timeline = buildTimeline(song.lines);
+    timeline = computeTimeline();
     paintAllTs();
     markTargets();
-    root.classList.toggle('unsynced', !timeline.length && !editing);
+    root.classList.toggle('unsynced', (!timeline.length || estimated) && !editing);
     update(false);
     updateButtons();
     schedulePersist();
@@ -518,6 +553,10 @@ export function initSync(ctx) {
     }
     const t = song.lines[i] && song.lines[i].t;
     if (typeof t === 'number') gotoTime(t);
+    else if (estimated) {
+      const hit = timeline.find(e => e.i === i);
+      if (hit) gotoTime(hit.t);
+    }
   });
 
   seek.addEventListener('pointerdown', () => { dragging = true; });
@@ -530,6 +569,9 @@ export function initSync(ctx) {
   });
 
   ['wheel', 'touchmove'].forEach(name => window.addEventListener(name, () => { userAt = Date.now(); }, { passive: true }));
+  window.addEventListener('keydown', ev => {
+    if (['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End'].includes(ev.key)) userAt = Date.now();
+  });
 
   document.addEventListener('keydown', ev => {
     if (!song || ev.ctrlKey || ev.metaKey || ev.altKey) return;
