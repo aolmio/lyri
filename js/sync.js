@@ -52,12 +52,38 @@ export function initSync(ctx) {
     note.classList.toggle('error', !!error);
   }
 
-  function scrollToRow(el) {
+  let lastAuto = 0;
+
+  function viewHeight() {
+    return window.innerHeight - (root.hidden ? 0 : root.offsetHeight);
+  }
+
+  function scrollToRow(el, instant) {
     const rect = el.getBoundingClientRect();
-    const bar = root.hidden ? 0 : root.offsetHeight;
-    const view = window.innerHeight - bar;
-    const target = window.scrollY + rect.top - (view - rect.height) / 2;
-    window.scrollTo({ top: Math.max(0, target), behavior: reduced() ? 'auto' : 'smooth' });
+    const view = viewHeight();
+    const target = window.scrollY + rect.top - Math.max(0, (view - rect.height) * 0.4);
+    lastAuto = Date.now();
+    window.scrollTo({ top: Math.max(0, target), behavior: instant || reduced() ? 'auto' : 'smooth' });
+  }
+
+  function keepInView() {
+    if (!clock.playing || !ctx.settings.get('follow')) return;
+    if (Date.now() - userAt < FOLLOW_PAUSE_MS || Date.now() - lastAuto < 700) return;
+    const el = rowEls.get(active);
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    const view = viewHeight();
+    if (rect.top < view * 0.08 || rect.bottom > view * 0.85) scrollToRow(el);
+  }
+
+  function setActive(idx, force) {
+    const old = rowEls.get(active);
+    if (old) old.classList.remove('active');
+    active = idx;
+    const el = rowEls.get(idx);
+    if (!el) return;
+    el.classList.add('active');
+    if (force || (ctx.settings.get('follow') && Date.now() - userAt > FOLLOW_PAUSE_MS)) scrollToRow(el);
   }
 
   function estimateTimeline(lines) {
@@ -89,16 +115,6 @@ export function initSync(ctx) {
     return timeline.length ? timeline[timeline.length - 1].t : 0;
   }
 
-  function setActive(idx, force) {
-    const old = rowEls.get(active);
-    if (old) old.classList.remove('active');
-    active = idx;
-    const el = rowEls.get(idx);
-    if (!el) return;
-    el.classList.add('active');
-    if (force || (ctx.settings.get('follow') && Date.now() - userAt > FOLLOW_PAUSE_MS)) scrollToRow(el);
-  }
-
   function updateSeekMax(pos) {
     let max = Math.max(60, timelineEnd() + 20);
     if (editing) max = Math.max(max, pos + 30);
@@ -125,6 +141,7 @@ export function initSync(ctx) {
     if (!dragging) seek.value = String(pos);
     const idx = timeline.length ? activeIndex(timeline, pos) : -1;
     if (idx !== active || force) setActive(idx, force && idx >= 0);
+    else keepInView();
     if (clock.playing && !editing && timeline.length && pos > timelineEnd() + AUTO_PAUSE_AFTER_END) {
       pause();
     }
