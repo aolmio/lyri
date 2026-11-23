@@ -1,4 +1,4 @@
-const VERSION = 'lyrics-studio-v2';
+const VERSION = 'lyrics-studio-v3';
 const SHELL = ['./', 'index.html', 'css/style.css', 'manifest.json', 'icon.svg'];
 
 self.addEventListener('install', event => {

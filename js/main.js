@@ -5,6 +5,7 @@ import { translateLines, googleRoman, SOURCE_CODE } from './translate.js';
 import { thaiTone, koreanRoman, quickJapanese, japanese, pinyinChars } from './romanize.js';
 import { isAbort, pool, tick } from './net.js';
 import * as library from './library.js';
+import { initSync } from './sync.js';
 
 const $ = id => document.getElementById(id);
 
@@ -37,6 +38,17 @@ const S = {
   rows: [],
   tab: 'search'
 };
+
+const sync = initSync({
+  settings,
+  toast: message => toast(message),
+  getSong: () => S.song,
+  isSaved: () => !!S.song && library.has(S.song.id),
+  persist: () => {
+    if (S.song && library.has(S.song.id)) library.update(S.song.id, { lines: S.song.lines, tr: S.song.tr || {}, roman: S.song.roman || null });
+  },
+  replaceLines: lines => replaceLines(lines)
+});
 
 const notes = {};
 
@@ -247,6 +259,7 @@ async function openItem(item) {
     timedOut = true;
     ctl.abort();
   }, LOAD_LIMIT_MS);
+  sync.detach();
   S.song = null;
   S.rows = [];
   $('placeholder').hidden = true;
@@ -333,6 +346,7 @@ function renderLyrics() {
       return;
     }
     const row = make('div', 'row');
+    row.dataset.i = String(i);
     const left = make('div', 'left');
     const o = make('div', 'o');
     o.lang = LANG_ATTR[S.lang] || 'en';
@@ -348,6 +362,20 @@ function renderLyrics() {
     box.append(row);
     S.rows[i] = { o, txt, r, t };
   });
+  sync.attach();
+}
+
+function replaceLines(lines) {
+  if (!S.song) return;
+  S.song.lines = lines;
+  S.song.tr = {};
+  S.song.roman = null;
+  S.lang = effectiveLang();
+  renderLyrics();
+  applyView();
+  runRoman();
+  runTranslate();
+  if (library.has(S.song.id)) library.update(S.song.id, { lines, tr: {}, roman: null });
 }
 
 function applyAppearance() {
@@ -364,7 +392,7 @@ function applyAppearance() {
   document.querySelectorAll('[data-out]').forEach(o => {
     const key = o.dataset.out;
     const v = settings.get(key);
-    o.textContent = key === 'fontSize' || key === 'maxWidth' ? v + 'px' : key === 'stanzaGap' ? v + 'em' : v;
+    o.textContent = key === 'fontSize' || key === 'maxWidth' ? v + 'px' : key === 'stanzaGap' ? v + 'em' : key === 'tapLag' ? v + 's' : v;
   });
   document.body.classList.toggle('keep-chrome', !settings.get('readingHidesChrome'));
 }

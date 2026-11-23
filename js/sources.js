@@ -117,6 +117,56 @@ export function manualItem(title, artist, text) {
   };
 }
 
+const norm = s => String(s || '').toLowerCase().replace(/[\s\p{P}\p{S}]+/gu, '');
+
+function pickMatch(rows, want, nameOf) {
+  const exact = rows.find(x => norm(nameOf(x)) === want);
+  if (exact) return exact;
+  return rows.find(x => {
+    const n = norm(nameOf(x));
+    return n && (n.includes(want) || want.includes(n));
+  });
+}
+
+export async function findSynced(title, artist, signal) {
+  const want = norm(title);
+  if (!want) return null;
+  const enc = encodeURIComponent;
+  const tries = [
+    'https://lrclib.net/api/search?track_name=' + enc(title) + (artist ? '&artist_name=' + enc(artist) : ''),
+    'https://lrclib.net/api/search?q=' + enc((title + ' ' + artist).trim())
+  ];
+  for (const url of tries) {
+    let rows = [];
+    try {
+      rows = await direct(url, { signal, as: 'json' });
+    } catch (e) {
+      if (signal && signal.aborted) throw e;
+      continue;
+    }
+    const synced = (Array.isArray(rows) ? rows : []).filter(x => x.syncedLyrics);
+    const best = pickMatch(synced, want, x => x.trackName);
+    if (best) {
+      const lines = parseLrc(best.syncedLyrics);
+      if (lines.some(l => typeof l.t === 'number')) return { source: 'LRCLIB', title: best.trackName, artist: best.artistName, lines };
+    }
+  }
+  try {
+    const q = (title + ' ' + artist).trim();
+    const res = await proxied('https://music.163.com/api/search/get/web?s=' + enc(q) + '&type=1&offset=0&limit=10', { signal, as: 'json', validator: d => d && d.result });
+    const songs = (res.result && res.result.songs) || [];
+    const best = pickMatch(songs, want, x => x.name);
+    if (best) {
+      const body = await proxied('https://music.163.com/api/song/lyric?id=' + best.id + '&lv=1&kv=1&tv=-1', { signal, as: 'json', validator: d => d && d.lrc });
+      const lines = parseLrc((body.lrc && body.lrc.lyric) || '');
+      if (lines.some(l => typeof l.t === 'number')) return { source: 'NetEase', title: best.name, artist: (best.artists || []).map(a => a.name).join(', '), lines };
+    }
+  } catch (e) {
+    if (signal && signal.aborted) throw e;
+  }
+  return null;
+}
+
 export const SOURCES = [
   { name: 'LRCLIB', setting: 'srcLrclib', search: one(lrclib) },
   { name: 'Lyrics.ovh', setting: 'srcOvh', search: one(lyricsOvh) },

@@ -98,6 +98,66 @@
     </article>
   </section>
 </main>
+<section id="transport" class="transport" aria-label="Lyrics playback" hidden>
+  <div class="tp-info">
+    <p class="tp-hint">No timestamps for this song yet. Find a synced version online, import an .lrc file, or mark the lines yourself while your music plays.</p>
+    <div class="tp-find">
+      <button type="button" data-act="find" class="primary">Find synced lyrics online</button>
+      <button type="button" data-act="manual">Sync manually</button>
+      <button type="button" data-act="import">Import .lrc</button>
+    </div>
+  </div>
+  <p id="tpNote" class="tp-note" role="status"></p>
+  <div class="tp-bar">
+    <div class="tp-btns">
+      <button type="button" data-act="play" class="primary" aria-label="Play"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.5v13a1 1 0 0 0 1.5.86l10.5-6.5a1 1 0 0 0 0-1.72L9.5 4.64A1 1 0 0 0 8 5.5z" fill="currentColor"/></svg><span>Play</span></button>
+      <button type="button" data-act="pause" aria-label="Pause"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="5" width="4.2" height="14" rx="1.3" fill="currentColor"/><rect x="13.8" y="5" width="4.2" height="14" rx="1.3" fill="currentColor"/></svg><span>Pause</span></button>
+      <button type="button" data-act="stop" aria-label="Stop"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2.4" fill="currentColor"/></svg><span>Stop</span></button>
+    </div>
+    <output id="tpTime" class="tp-time" aria-label="Position">00:00.0</output>
+    <input id="tpSeek" class="tp-seek" type="range" min="0" max="240" step="0.1" value="0" aria-label="Playback position">
+    <div class="tp-nudge">
+      <button type="button" data-act="back" title="Move the lyrics clock back half a second" aria-label="Back half a second">−0.5s</button>
+      <button type="button" data-act="fwd" title="Move the lyrics clock forward half a second" aria-label="Forward half a second">+0.5s</button>
+    </div>
+    <label class="pill"><input type="checkbox" data-key="follow">Follow</label>
+    <button type="button" data-act="edit">Edit sync</button>
+  </div>
+  <div id="syncPanel" class="sync-panel" hidden>
+    <p class="sync-hint">Press Play here as your music starts, then press Mark line as each line begins.</p>
+    <div class="sync-next"><span>Next line</span><strong id="syncNext" lang="und"></strong></div>
+    <div class="sync-row">
+      <button type="button" data-act="tap" class="primary big">Mark line</button>
+      <button type="button" data-act="undo">Undo</button>
+    </div>
+    <details id="syncMore" class="sync-more">
+    <summary>More tools</summary>
+    <p class="sync-hint">Tap a line in the lyrics to jump to it and fine-tune its time.</p>
+    <div class="sync-row">
+      <span class="sync-lbl">Selected line</span>
+      <button type="button" data-act="fine" data-d="-0.1">−0.1s</button>
+      <button type="button" data-act="fine" data-d="0.1">+0.1s</button>
+      <button type="button" data-act="clearline">Clear time</button>
+    </div>
+    <div class="sync-row">
+      <span class="sync-lbl">All lines</span>
+      <button type="button" data-act="shift" data-d="-0.5">−0.5s</button>
+      <button type="button" data-act="shift" data-d="0.5">+0.5s</button>
+      <button type="button" data-act="restart" class="danger">Start over</button>
+    </div>
+    <div class="sync-row">
+      <button type="button" data-act="copy">Copy .lrc</button>
+      <button type="button" data-act="download">Download .lrc</button>
+      <button type="button" data-act="import">Import .lrc</button>
+      <button type="button" data-act="find">Find online</button>
+    </div>
+    </details>
+    <div class="sync-row sync-end">
+      <button type="button" data-act="done" class="primary">Done</button>
+    </div>
+  </div>
+  <input id="tpFile" type="file" accept=".lrc,.txt,text/plain" hidden>
+</section>
 <button id="exitReading" type="button" class="exit-reading" hidden>Exit reading mode</button>
 <div id="toast" class="toast" role="status" aria-live="polite"></div>
 
@@ -152,7 +212,6 @@
         </select>
       </label>
       <label class="check"><input type="checkbox" data-key="dimRom"> Soften romanization colour</label>
-      <label class="check"><input type="checkbox" data-key="timestamps"> Show timestamps when available</label>
       <label class="check"><input type="checkbox" data-key="readingHidesChrome"> Reading mode hides search, lists and controls</label>
     </fieldset>
 
@@ -185,6 +244,16 @@
       <label class="check"><input type="checkbox" data-key="showOrig"> Show original</label>
       <label class="check"><input type="checkbox" data-key="showRom"> Show romanization</label>
       <label class="check"><input type="checkbox" data-key="showTr"> Show translation</label>
+    </fieldset>
+
+    <fieldset>
+      <legend>Synced lyrics</legend>
+      <label>Mark delay compensation <output data-out="tapLag"></output>
+        <input type="range" min="0" max="0.6" step="0.05" data-key="tapLag">
+      </label>
+      <label class="check"><input type="checkbox" data-key="follow"> Auto-scroll to the current line</label>
+      <label class="check"><input type="checkbox" data-key="timestamps"> Show timestamps next to lines</label>
+      <p class="muted small">When you mark a line while syncing, this much time is taken off to make up for your reaction delay.</p>
     </fieldset>
 
     <fieldset>

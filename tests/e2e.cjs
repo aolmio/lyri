@@ -26,6 +26,8 @@ const LRCLIB = [
   { id: 2, trackName: 'Test Japanese', artistName: 'Mock Artist', albumName: 'B', plainLyrics: 'ありがとう\n空を見上げて\nきらきら', syncedLyrics: null }
 ];
 
+const LRCLIB_SYNCED = [{ id: 9, trackName: 'Test Song', artistName: 'Mock Artist', albumName: 'A', plainLyrics: 'x', syncedLyrics: '[00:02.00]Walking down the road\n[00:04.00]Stars in the sky\n[00:06.00]\n[00:08.00]Nothing left to say' }];
+
 const NETEASE_SEARCH = { result: { songs: [{ id: 77, name: 'Test Chinese', artists: [{ name: 'Mock Artist' }], album: { name: 'C' } }] } };
 const NETEASE_LYRIC = { lrc: { lyric: '[00:01.00]你好世界\n[00:03.00]今天很好\n[00:05.00]明天见' } };
 
@@ -60,6 +62,7 @@ async function mock(context, mode) {
     }
     if (u.hostname === 'cdn.jsdelivr.net') return route.abort();
     if (mode === 'hang' && !(u.hostname === 'lrclib.net' && mode === 'hang-sz')) return new Promise(() => {});
+    if (u.hostname === 'lrclib.net' && u.searchParams.has('track_name')) return route.fulfill({ status: 200, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' }, body: JSON.stringify(mode === 'nosync' ? [] : LRCLIB_SYNCED) });
     if (u.hostname === 'lrclib.net') return route.fulfill({ status: 200, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' }, body: JSON.stringify(LRCLIB) });
     if (u.hostname === 'api.lyrics.ovh') return route.abort();
     if (u.hostname === 'translate.googleapis.com' && mode === 'gdown') return route.abort();
@@ -176,9 +179,16 @@ async function main() {
     check('save button resets after delete', (await page.textContent('#saveBtn')).includes('Save') && !(await page.textContent('#saveBtn')).includes('Saved'));
     await page.click('.tabs button[data-tab="search"]');
 
+    const heavy = [];
+    page.on('request', r => { if (/kuro|kuromoji/i.test(r.url())) heavy.push(r.url()); });
+    await page.evaluate(() => { window.__lag = 0; let last = performance.now(); setInterval(() => { const n = performance.now(); window.__lag = Math.max(window.__lag, n - last - 50); last = n; }, 50); });
     await page.locator('#resultList .item', { hasText: 'Test Japanese' }).locator('button.open').click();
     await page.waitForSelector('#lyrics .row');
     await page.waitForFunction(() => [...document.querySelectorAll('#lyrics .r')].filter(e => e.textContent).length >= 3, null, { timeout: 10000 });
+    await page.waitForTimeout(1500);
+    check('japanese song loads no dictionary downloads', heavy.length === 0, heavy);
+    const lag = await page.evaluate(() => window.__lag);
+    check('main thread stays responsive on a japanese song', lag < 250, lag);
     const ja = await page.$$eval('#lyrics .row .r', els => els.map(e => e.textContent));
     check('japanese romaji appears for kana lines', ja[0].toLowerCase().startsWith('rm:') || ja[0] === 'arigatou', ja);
     check('japanese romaji appears for kanji lines', !!ja[1], ja);
@@ -309,6 +319,167 @@ async function main() {
     const fits = await page.evaluate(() => { const r = document.getElementById('optionsDlg').getBoundingClientRect(); return r.width <= window.innerWidth && r.height <= window.innerHeight; });
     check('options dialog fits the phone screen', fits);
     await shot(page, 'mobile-options');
+    await ctx.close();
+  }
+
+
+  {
+    const ctx = await browser.newContext({ viewport: { width: 1280, height: 860 }, deviceScaleFactor: 1, acceptDownloads: true });
+    await mock(ctx, 'ok');
+    const page = await ctx.newPage();
+    page.setDefaultTimeout(15000);
+    const errors = [];
+    page.on('pageerror', e => errors.push(String(e)));
+    page.on('dialog', d => d.accept());
+    await page.goto(BASE);
+    await search(page, 'test');
+    await page.waitForFunction(() => document.querySelectorAll('#resultList .item').length >= 4, null, { timeout: 15000 });
+    check('transport is hidden before a song is opened', !(await page.locator('#transport').isVisible()));
+
+    await page.locator('#resultList .item', { hasText: 'Test Chinese' }).locator('button.open').click();
+    await page.waitForSelector('#lyrics .row');
+    check('synced song shows the transport controls', await page.locator('#transport .tp-bar').isVisible() && !(await page.locator('#transport.unsynced').count()));
+    check('timestamps are shown on synced lines', (await page.locator('#lyrics .row .ts').first().isVisible()) && (await page.textContent('#lyrics .row .ts')) === '00:01');
+    check('play is ready and pause and stop are idle', !(await page.locator('[data-act="play"]').isDisabled()) && (await page.locator('[data-act="pause"]').isDisabled()) && (await page.locator('[data-act="stop"]').isDisabled()));
+    await page.click('[data-act="play"]');
+    await page.waitForSelector('#lyrics .row.active[data-i="0"]', { timeout: 5000 });
+    check('first line highlights at its timestamp', true);
+    check('play disables itself and enables pause', (await page.locator('[data-act="play"]').isDisabled()) && !(await page.locator('[data-act="pause"]').isDisabled()));
+    await page.waitForSelector('#lyrics .row.active[data-i="1"]', { timeout: 6000 });
+    check('highlight advances to the next line on its own', (await page.locator('#lyrics .row.active').count()) === 1);
+    await page.click('[data-act="pause"]');
+    const frozen = await page.textContent('#tpTime');
+    const frozenRow = await page.getAttribute('#lyrics .row.active', 'data-i');
+    await page.waitForTimeout(1300);
+    check('pause freezes the clock and the highlight', (await page.textContent('#tpTime')) === frozen && (await page.getAttribute('#lyrics .row.active', 'data-i')) === frozenRow, [frozen, await page.textContent('#tpTime')]);
+    await page.click('[data-act="play"]');
+    await page.waitForTimeout(500);
+    check('play resumes from the paused position', (await page.textContent('#tpTime')) > frozen);
+    await page.click('[data-act="pause"]');
+    await page.click('#lyrics .row[data-i="2"]');
+    check('clicking a line jumps the clock to its timestamp', (await page.textContent('#tpTime')).startsWith('00:05') && (await page.getAttribute('#lyrics .row.active', 'data-i')) === '2', await page.textContent('#tpTime'));
+    await page.click('[data-act="stop"]');
+    check('stop resets the clock and clears the highlight', (await page.textContent('#tpTime')) === '00:00.0' && (await page.locator('#lyrics .row.active').count()) === 0);
+    await page.click('[data-act="fwd"]');
+    check('+0.5s nudges the clock forward', (await page.textContent('#tpTime')) === '00:00.5', await page.textContent('#tpTime'));
+    await page.click('[data-act="stop"]');
+    await page.evaluate(() => document.activeElement && document.activeElement.blur());
+    await page.keyboard.press('Space');
+    check('space bar starts playback', !(await page.locator('[data-act="pause"]').isDisabled()));
+    await page.keyboard.press('Space');
+    check('space bar pauses playback', await page.locator('[data-act="pause"]').isDisabled());
+    await shot(page, 'desktop-synced');
+
+    await page.locator('#resultList .item', { hasText: 'Test Song' }).locator('button.open').click();
+    await page.waitForSelector('#lyrics .row');
+    check('song without timestamps offers sync options', await page.locator('#transport.unsynced .tp-find').isVisible() && !(await page.locator('#transport .tp-bar').isVisible()));
+    await page.click('#transport .tp-find [data-act="find"]');
+    await page.waitForSelector('#transport:not(.unsynced)', { timeout: 15000 });
+    const found = await page.$$eval('#lyrics .row .o .txt', els => els.map(e => e.textContent));
+    check('find online loads the synced version', found.length === 3 && found[0] === 'Walking down the road', found);
+    check('found lyrics keep their timestamps', (await page.textContent('#lyrics .row .ts')) === '00:02');
+
+    await page.locator('#resultList .item', { hasText: 'Test Song' }).locator('button.open').click();
+    await page.waitForSelector('#transport.unsynced');
+    await page.click('#transport .tp-find [data-act="manual"]');
+    check('manual sync opens the editor', await page.locator('#syncPanel').isVisible());
+    check('editor shows the first line to mark', (await page.textContent('#syncNext')) === 'Walking down the road');
+    await page.click('#syncPanel [data-act="tap"]');
+    check('marking before play asks to press play', (await page.textContent('#toast')).includes('Press Play'));
+    await page.click('[data-act="play"]');
+    await page.waitForTimeout(600);
+    await page.click('#syncPanel [data-act="tap"]');
+    await page.waitForTimeout(500);
+    await page.keyboard.press('Space');
+    await page.waitForTimeout(500);
+    await page.click('#syncPanel [data-act="undo"]');
+    check('undo moves back to the last marked line', (await page.textContent('#syncNext')) === 'Stars in the sky');
+    await page.waitForTimeout(300);
+    await page.keyboard.press('Enter');
+    await page.waitForTimeout(400);
+    await page.click('#syncPanel [data-act="tap"]');
+    check('all lines marked', (await page.textContent('#syncNext')) === 'Every line is marked');
+    const stamps = await page.$$eval('#lyrics .row .ts', els => els.map(e => e.textContent));
+    const secs = stamps.map(t => Number(t.split(':')[0]) * 60 + Number(t.split(':')[1]));
+    check('every line received a time in order', stamps.length === 3 && secs.every((v, i) => !isNaN(v) && (i === 0 || v > secs[i - 1])), stamps);
+    check('mark delay is subtracted', secs[0] >= 0.3 && secs[0] <= 0.7, secs);
+    await page.click('#lyrics .row[data-i="1"]');
+    await page.click('#syncPanel [data-act="fine"][data-d="0.1"]');
+    const nudged = await page.$$eval('#lyrics .row .ts', els => els.map(e => e.textContent));
+    check('fine tune moves the selected line by 0.1s', nudged[1] !== stamps[1], [stamps, nudged]);
+    const dl = page.waitForEvent('download');
+    await page.click('#syncPanel [data-act="download"]');
+    const file = await dl;
+    check('lrc download uses artist and title', file.suggestedFilename() === 'Mock Artist - Test Song.lrc', file.suggestedFilename());
+    const lrcText = fs.readFileSync(await file.path(), 'utf8');
+    check('downloaded lrc has time tags', /\[\d\d:\d\d\.\d\d\]Walking down the road/.test(lrcText), lrcText);
+    await page.click('#syncPanel [data-act="done"]');
+    check('done closes the editor and keeps lyrics synced', !(await page.locator('#syncPanel').isVisible()) && (await page.locator('#lyrics.synced').count()) === 1);
+    await page.click('[data-act="stop"]');
+    await page.click('#saveBtn');
+    const savedLines = await page.evaluate(() => JSON.parse(localStorage.getItem('lyricsStudio.library'))[0].lines);
+    check('saved song stores the timestamps', savedLines.filter(l => l.text && typeof l.t === 'number').length === 3, savedLines);
+
+    await page.reload();
+    await page.click('.tabs button[data-tab="saved"]');
+    await page.locator('#savedList .item button.open').click();
+    await page.waitForSelector('#lyrics .row');
+    check('saved song reopens already synced', !(await page.locator('#transport.unsynced').count()) && await page.locator('#transport .tp-bar').isVisible());
+    await page.click('[data-act="play"]');
+    await page.waitForSelector('#lyrics .row.active', { timeout: 6000 });
+    check('saved song plays with highlighting after a reload', true);
+    await page.click('[data-act="pause"]');
+
+    await page.click('[data-act="edit"]');
+    await page.click('#syncPanel [data-act="restart"]');
+    check('start over clears every timestamp', (await page.locator('#lyrics .row .ts.empty').count()) === 3);
+    await page.setInputFiles('#tpFile', { name: 'x.lrc', mimeType: 'text/plain', buffer: Buffer.from('[00:01.00]aaa\n[00:02.50]bbb\n[00:04.00]ccc') });
+    await page.waitForFunction(() => document.querySelectorAll('#lyrics .row').length === 3 && document.querySelector('#lyrics .row .txt').textContent === 'aaa');
+    check('importing an lrc file applies its lines and times', !(await page.locator('#syncPanel').isVisible()) && (await page.locator('#lyrics.synced').count()) === 1);
+    const persisted = await page.evaluate(() => JSON.parse(localStorage.getItem('lyricsStudio.library'))[0].lines.map(l => l.text));
+    check('import updates the saved copy', persisted.join('|') === 'aaa|bbb|ccc', persisted);
+    check('no page errors during sync flows', errors.length === 0, errors);
+    await ctx.close();
+  }
+
+  {
+    const ctx = await browser.newContext({ viewport: { width: 1280, height: 860 } });
+    await mock(ctx, 'nosync');
+    const page = await ctx.newPage();
+    page.setDefaultTimeout(15000);
+    page.on('dialog', d => d.accept());
+    await page.goto(BASE);
+    await search(page, 'test');
+    await page.waitForFunction(() => document.querySelectorAll('#resultList .item').length >= 2, null, { timeout: 15000 });
+    await page.locator('#resultList .item', { hasText: 'Test Song' }).locator('button.open').click();
+    await page.waitForSelector('#transport.unsynced');
+    await page.click('#transport .tp-find [data-act="find"]');
+    await page.waitForFunction(() => /No synced version/.test(document.getElementById('tpNote').textContent), null, { timeout: 20000 });
+    check('missing online sync is reported with a way forward', /No synced version/.test(await page.textContent('#tpNote')) && await page.locator('#transport.unsynced').count() === 1, await page.textContent('#tpNote'));
+    await ctx.close();
+  }
+
+  {
+    const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
+    await mock(ctx, 'ok');
+    const page = await ctx.newPage();
+    page.setDefaultTimeout(15000);
+    await page.goto(BASE);
+    await search(page, 'test');
+    await page.waitForFunction(() => document.querySelectorAll('#resultList .item').length >= 4);
+    check('mobile list view has no transport bar', !(await page.locator('#transport').isVisible()));
+    await page.locator('#resultList .item', { hasText: 'Test Chinese' }).locator('button.open').click();
+    await page.waitForSelector('#lyrics .row');
+    check('mobile song view shows the transport', await page.locator('#transport').isVisible());
+    const box = await page.evaluate(() => { const r = document.getElementById('transport').getBoundingClientRect(); return { l: r.left, r: r.right, b: r.bottom, w: window.innerWidth, h: window.innerHeight, over: document.documentElement.scrollWidth - window.innerWidth }; });
+    check('mobile transport fits the screen', box.l >= 0 && box.r <= box.w && box.b <= box.h && box.over <= 1, box);
+    await shot(page, 'mobile-synced');
+    await page.click('[data-act="edit"]');
+    const box2 = await page.evaluate(() => { const r = document.getElementById('transport').getBoundingClientRect(); return { l: r.left, r: r.right, t: r.top, b: r.bottom, w: window.innerWidth, h: window.innerHeight, over: document.documentElement.scrollWidth - window.innerWidth }; });
+    check('mobile sync editor fits the screen', box2.l >= 0 && box2.r <= box2.w && box2.b <= box2.h && box2.t >= 0 && box2.over <= 1, box2);
+    await shot(page, 'mobile-sync-editor');
+    await page.click('#backBtn');
+    check('back to list hides the transport on mobile', !(await page.locator('#transport').isVisible()));
     await ctx.close();
   }
 

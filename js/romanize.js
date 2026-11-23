@@ -5,7 +5,7 @@ import { kanaToRomaji } from './kana.js';
 import { googleRoman } from './translate.js';
 
 const PINYIN_URL = 'https://cdn.jsdelivr.net/npm/pinyin-pro@3.26.0/dist/index.js';
-const HAN = /[\u3400-\u9FFF]/;
+const HAN = /[㐀-鿿]/;
 
 export const hasHan = text => HAN.test(text);
 
