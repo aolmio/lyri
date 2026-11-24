@@ -41,6 +41,13 @@ export function save(song) {
   return write(items);
 }
 
+export function saveMany(songs) {
+  const map = new Map(read().map(s => [s.id, s]));
+  const now = Date.now();
+  songs.forEach((song, i) => map.set(song.id, { ...song, savedAt: now + i }));
+  return write([...map.values()]);
+}
+
 export function update(id, patch) {
   const items = read();
   const i = items.findIndex(s => s.id === id);
