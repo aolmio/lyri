@@ -5,6 +5,8 @@ import { translateLines, googleRoman, SOURCE_CODE } from './translate.js';
 import { thaiTone, koreanRoman, quickJapanese, japanese, pinyinChars } from './romanize.js';
 import { isAbort, pool, tick } from './net.js';
 import * as library from './library.js';
+import { toLrc, safeName } from './lrc.js';
+import { makeZip, readZip, uniqueNames, downloadBlob } from './bulk.js';
 import { initSync } from './sync.js';
 
 const $ = id => document.getElementById(id);
@@ -609,14 +611,20 @@ function savedPreview(rec) {
   return rec.lines.filter(l => l.text).slice(0, 2).map(l => l.text).join(' • ');
 }
 
-function renderSaved() {
+function savedItems() {
   const all = library.list();
   const q = $('savedFilter').value.trim().toLowerCase();
-  const items = q ? all.filter(r => (r.title + ' ' + r.artist + ' ' + r.source + ' ' + savedPreview(r)).toLowerCase().includes(q)) : all;
+  return q ? all.filter(r => (r.title + ' ' + r.artist + ' ' + r.source + ' ' + savedPreview(r)).toLowerCase().includes(q)) : all;
+}
+
+function renderSaved() {
+  const all = library.list();
+  const items = savedItems();
   const ul = $('savedList');
   ul.textContent = '';
   $('savedCount').textContent = all.length ? String(all.length) : '';
   $('clearSaved').hidden = !all.length;
+  $('bulkExportBtn').disabled = !all.length;
   if (!items.length) {
     ul.append(make('li', 'empty-note', all.length ? 'No saved songs match your filter.' : 'Songs you save appear here.'));
     return;
@@ -700,25 +708,103 @@ function lrcItem(source, title, artist, text) {
   };
 }
 
-async function importLyricsFile(file) {
-  if (!file) return;
-  try {
-    const text = await file.text();
-    let base = file.name.replace(/\.[^.]+$/, '').replace(/[_]+/g, ' ').trim();
-    let artist = '';
+function songFromText(fileName, text) {
+  const raw = String(text || '').replace(/^\uFEFF/, '');
+  const item = lrcItem('File', '', '', raw);
+  let lines = LRC_STAMP.test(raw) ? parseLrc(raw) : [];
+  if (!lines.some(l => l.text)) lines = parsePlain(raw.replace(/^\[[a-z]{2,8}:[^\]]*\]\s*$/gim, ''));
+  if (!lines.some(l => l.text)) return null;
+  let base = String(fileName || '').replace(/\.[^.]+$/, '').replace(/_+/g, ' ').trim();
+  let artist = item.artist;
+  let title = item.title === 'Untitled' ? '' : item.title;
+  if (!title) {
     const m = base.match(/^(.+?)\s+-\s+(.+)$/);
     if (m) {
-      artist = m[1].trim();
+      if (!artist) artist = m[1].trim();
       base = m[2].trim();
     }
-    const item = lrcItem('File', '', '', text);
-    if (item.title === 'Untitled') item.title = base || 'Untitled';
-    if (!item.artist) item.artist = artist;
-    showTab('search');
-    openItem(item);
-  } catch (e) {
-    toast('Could not read that file');
+    title = base || 'Untitled';
   }
+  return {
+    id: library.songId({ source: 'File', url: '', title, artist, lines }),
+    source: 'File',
+    url: '',
+    title,
+    artist,
+    lines,
+    roman: null,
+    tr: {}
+  };
+}
+
+async function collectImportEntries(files) {
+  const entries = [];
+  let zipped = false;
+  for (const file of files) {
+    if (/\.zip$/i.test(file.name)) {
+      zipped = true;
+      try {
+        entries.push(...await readZip(await file.arrayBuffer()));
+      } catch (e) {
+        toast(file.name + ': ' + e.message);
+      }
+    } else {
+      entries.push({ name: file.name, text: await file.text() });
+    }
+  }
+  return { entries, zipped };
+}
+
+async function importLyricsFiles(fileList) {
+  const files = Array.from(fileList || []);
+  if (!files.length) return;
+  try {
+    const { entries, zipped } = await collectImportEntries(files);
+    const songs = entries.map(e => songFromText(e.name, e.text)).filter(Boolean);
+    if (!songs.length) {
+      toast('No lyrics found in the selected files');
+      return;
+    }
+    if (songs.length === 1 && !zipped && S.tab === 'search') {
+      const song = songs[0];
+      openItem({
+        source: 'File',
+        title: song.title,
+        artist: song.artist,
+        url: '',
+        load: async () => ({ lines: song.lines, title: song.title, artist: song.artist })
+      });
+      return;
+    }
+    if (!library.saveMany(songs)) {
+      setNote('save', 'Could not save: browser storage is full or disabled.', true);
+      return;
+    }
+    const skipped = entries.length - songs.length;
+    showTab('saved');
+    renderSaved();
+    updateSaveButton();
+    toast('Imported ' + songs.length + (songs.length === 1 ? ' song' : ' songs') + (skipped ? ', skipped ' + skipped : ''));
+  } catch (e) {
+    toast('Could not read the selected files');
+  }
+}
+
+function exportSaved() {
+  const items = savedItems();
+  if (!items.length) {
+    toast('Nothing to export');
+    return;
+  }
+  const names = uniqueNames(items.map(r => safeName(r) + '.lrc'));
+  if (items.length === 1) {
+    downloadBlob(new Blob([toLrc(items[0])], { type: 'text/plain;charset=utf-8' }), names[0]);
+    toast('Exported 1 song');
+    return;
+  }
+  const zip = makeZip(items.map((r, i) => ({ name: names[i], data: toLrc(r) })));
+  downloadBlob(zip, 'lyrics-' + new Date().toISOString().slice(0, 10) + '.zip');
+  toast('Exported ' + items.length + ' songs');
 }
 
 async function updateApp() {
@@ -861,10 +947,12 @@ function init() {
     else openItem(manualItem(title, artist, text));
   });
   $('importLrcBtn').addEventListener('click', () => $('lrcFile').click());
+  $('bulkImportBtn').addEventListener('click', () => $('lrcFile').click());
+  $('bulkExportBtn').addEventListener('click', exportSaved);
   $('lrcFile').addEventListener('change', () => {
-    const file = $('lrcFile').files && $('lrcFile').files[0];
+    const files = Array.from($('lrcFile').files || []);
     $('lrcFile').value = '';
-    importLyricsFile(file);
+    importLyricsFiles(files);
   });
   $('updateBtn').addEventListener('click', updateApp);
 }
