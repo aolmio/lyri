@@ -201,6 +201,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .pill,
 .item .open,
 .item .del,
+.item .edit,
 .tabs,
 #song,
 .placeholder,
@@ -788,3 +789,8 @@ body.reading .layout { padding-top: 68px; }
 .bulk-row { display: flex; gap: 8px; margin: 0 0 10px; }
 .bulk-row button { flex: 1; min-height: 42px; }
 .bulk-row button:disabled { opacity: 0.45; }
+
+.item .edit { flex: none; width: 44px; padding: 0; border-radius: 20px; }
+#editLyrics { min-height: 240px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 0.85rem; line-height: 1.5; white-space: pre; overflow: auto; }
+#editNote.error { color: var(--danger); }
+#editDlg .opts footer .primary { background: var(--accent); color: #fff; border-color: transparent; }
