@@ -44,8 +44,8 @@
         <label class="pill"><input type="checkbox" data-key="srcSiamzone">SiamZone</label>
       </div>
       <ul id="resultList" class="list"></ul>
-      <button id="importLrcBtn" type="button" class="import-btn">Import .lrc or .txt file</button>
-      <input id="lrcFile" type="file" accept=".lrc,.txt,text/plain" hidden>
+      <button id="importLrcBtn" type="button" class="import-btn">Import .lrc / .txt / .zip files</button>
+      <input id="lrcFile" type="file" accept=".lrc,.txt,.zip,text/plain,application/zip" multiple hidden>
       <details class="paste">
         <summary>Paste lyrics manually (plain or .lrc text)</summary>
         <form id="pasteForm">
@@ -61,6 +61,10 @@
       <div class="saved-tools">
         <input id="savedFilter" type="search" placeholder="Filter saved songs" aria-label="Filter saved songs">
         <button id="clearSaved" type="button" class="danger" hidden>Clear all</button>
+      </div>
+      <div class="bulk-row">
+        <button id="bulkImportBtn" type="button">Import files</button>
+        <button id="bulkExportBtn" type="button" disabled>Export .zip</button>
       </div>
       <ul id="savedList" class="list"></ul>
     </section>
