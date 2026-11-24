@@ -1,11 +1,11 @@
 import { settings } from './settings.js';
 import { SOURCES, urlItems, manualItem } from './sources.js';
-import { detectLang, lineScript, alreadyTarget, parseLrc, parsePlain } from './lyrics.js';
+import { detectLang, lineScript, alreadyTarget, parseLrc, parsePlain, cleanLines } from './lyrics.js';
 import { translateLines, googleRoman, SOURCE_CODE } from './translate.js';
 import { thaiTone, koreanRoman, quickJapanese, japanese, pinyinChars } from './romanize.js';
 import { isAbort, pool, tick } from './net.js';
 import * as library from './library.js';
-import { toLrc, safeName } from './lrc.js';
+import { toLrc, safeName, fmtClock } from './lrc.js';
 import { makeZip, readZip, uniqueNames, downloadBlob } from './bulk.js';
 import { initSync } from './sync.js';
 
@@ -611,6 +611,94 @@ function savedPreview(rec) {
   return rec.lines.filter(l => l.text).slice(0, 2).map(l => l.text).join(' • ');
 }
 
+let editId = '';
+
+function parseEditorText(raw) {
+  const out = [];
+  for (const row of String(raw || '').replace(/^\uFEFF/, '').replace(/\r/g, '').split('\n')) {
+    const stamps = [...row.matchAll(/\[(\d{1,3}):(\d{2})(?:[.:](\d{1,3}))?\]/g)];
+    if (!stamps.length && /^\s*\[[a-z]{2,8}:[^\]]*\]\s*$/i.test(row)) continue;
+    const body = row.replace(/\[\d{1,3}:\d{2}(?:[.:]\d{1,3})?\]/g, '').trim();
+    if (!body) {
+      out.push({ text: '' });
+      continue;
+    }
+    if (!stamps.length) {
+      out.push({ text: body });
+      continue;
+    }
+    for (const m of stamps) {
+      out.push({ text: body, t: Number(m[1]) * 60 + Number(m[2]) + (m[3] ? Number('0.' + m[3]) : 0) });
+    }
+  }
+  return cleanLines(out);
+}
+
+function editorText(lines) {
+  return lines.map(l => (!l.text ? '' : typeof l.t === 'number' ? '[' + fmtClock(l.t, 2) + ']' + l.text : l.text)).join('\n');
+}
+
+function lineSig(lines) {
+  return JSON.stringify(lines.map(l => [l.text, typeof l.t === 'number' ? Math.round(l.t * 100) : null]));
+}
+
+function openEditor(id) {
+  const rec = S.song && S.song.id === id ? S.song : library.get(id);
+  if (!rec) return;
+  editId = id;
+  $('editTitle').value = rec.title || '';
+  $('editArtist').value = rec.artist || '';
+  $('editSource').value = rec.source || '';
+  $('editLyrics').value = editorText(rec.lines);
+  $('editNote').textContent = '';
+  $('editNote').classList.remove('error');
+  $('editDlg').showModal();
+}
+
+function saveEditor() {
+  const saved = library.get(editId);
+  const current = S.song && S.song.id === editId ? S.song : null;
+  const rec = current || saved;
+  if (!rec) {
+    $('editDlg').close();
+    return;
+  }
+  const raw = $('editLyrics').value;
+  const lines = parseEditorText(raw);
+  if (!lines.some(l => l.text)) {
+    $('editNote').textContent = 'Lyrics cannot be empty.';
+    $('editNote').classList.add('error');
+    return;
+  }
+  const title = $('editTitle').value.trim() || 'Untitled';
+  const artist = $('editArtist').value.trim();
+  const source = $('editSource').value.trim() || rec.source || 'File';
+  const linesChanged = lineSig(lines) !== lineSig(cleanLines(rec.lines.map(l => ({ ...l }))));
+  const next = { ...rec, title, artist, source };
+  const newId = rec.url ? rec.id : library.songId({ source, url: rec.url, title, artist, lines });
+  next.id = newId;
+  if (saved) {
+    if (newId !== editId && library.has(newId)) library.remove(newId);
+    library.update(editId, { id: newId, title, artist, source });
+  }
+  if (current) {
+    current.id = newId;
+    current.title = title;
+    current.artist = artist;
+    current.source = source;
+    $('songTitle').textContent = title;
+    $('songArtist').textContent = artist;
+    updateSourceLink(current);
+    if (linesChanged) replaceLines(lines);
+  } else if (saved && linesChanged) {
+    library.update(newId, { lines, tr: {}, roman: null });
+  }
+  updateSaveButton();
+  renderSaved();
+  $('editDlg').close();
+  toast('Changes saved');
+}
+
 function savedItems() {
   const all = library.list();
   const q = $('savedFilter').value.trim().toLowerCase();
@@ -641,6 +729,11 @@ function renderSaved() {
     tags.append(make('span', 'tag', rec.source));
     open.append(tags);
     open.addEventListener('click', () => openSaved(rec.id));
+    const edit = make('button', 'edit', '✎');
+    edit.type = 'button';
+    edit.title = 'Edit title, artist and lyrics';
+    edit.setAttribute('aria-label', 'Edit ' + (rec.title || 'song'));
+    edit.addEventListener('click', () => openEditor(rec.id));
     const del = make('button', 'del', '✕');
     del.type = 'button';
     del.title = 'Delete saved song';
@@ -651,7 +744,7 @@ function renderSaved() {
       renderSaved();
       toast('Deleted');
     });
-    li.append(open, del);
+    li.append(open, edit, del);
     ul.append(li);
   }
 }
@@ -932,6 +1025,8 @@ function init() {
   });
   $('backBtn').addEventListener('click', () => setView('list'));
   $('saveBtn').addEventListener('click', toggleSave);
+  $('editBtn').addEventListener('click', () => S.song && openEditor(S.song.id));
+  $('editSave').addEventListener('click', saveEditor);
   $('readBtn').addEventListener('click', () => setReading(true));
   $('exitReading').addEventListener('click', () => setReading(false));
   $('copyBtn').addEventListener('click', copyLyrics);
