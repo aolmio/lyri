@@ -784,3 +784,7 @@ body.reading .exit-reading {
 }
 
 body.reading .layout { padding-top: 68px; }
+
+.bulk-row { display: flex; gap: 8px; margin: 0 0 10px; }
+.bulk-row button { flex: 1; min-height: 42px; }
+.bulk-row button:disabled { opacity: 0.45; }
