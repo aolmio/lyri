@@ -87,6 +87,7 @@
           <button id="saveBtn" type="button">☆ Save</button>
           <button id="readBtn" type="button">Reading mode</button>
           <button id="copyBtn" type="button">Copy</button>
+          <button id="editBtn" type="button">Edit</button>
         </div>
       </div>
       <div class="toggles">
@@ -166,6 +167,34 @@
 </section>
 <button id="exitReading" type="button" class="exit-reading" hidden>Exit reading mode</button>
 <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+<dialog id="editDlg">
+  <form method="dialog" class="opts" id="editForm">
+    <header>
+      <h2>Edit song</h2>
+      <button value="close" class="icon" aria-label="Close">✕</button>
+    </header>
+    <fieldset>
+      <label>Title
+        <input id="editTitle" type="text" autocomplete="off">
+      </label>
+      <label>Artist
+        <input id="editArtist" type="text" autocomplete="off">
+      </label>
+      <label>Source
+        <input id="editSource" type="text" autocomplete="off">
+      </label>
+      <label>Lyrics (plain text or .lrc with timestamps)
+        <textarea id="editLyrics" rows="12" spellcheck="false"></textarea>
+      </label>
+      <p id="editNote" class="muted small"></p>
+    </fieldset>
+    <footer>
+      <button value="close">Cancel</button>
+      <button type="button" id="editSave" class="primary">Save changes</button>
+    </footer>
+  </form>
+</dialog>
 
 <dialog id="optionsDlg">
   <form method="dialog" class="opts">
